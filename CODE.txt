@@ -1,0 +1,227 @@
+//OO INTERFACE ON VISUAL STUDIO REQUIRES THE CONNECTION OF SERIAL PORT
+
+
+using Emgu.CV;
+using Emgu.CV.Structure;
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+
+namespace Face_Recognition_Security
+{
+    public partial class Form1 : Form
+    {
+        //Declared Variables will be used in project
+        MCvFont font = new MCvFont(Emgu.CV.CvEnum.FONT.CV_FONT_HERSHEY_TRIPLEX, 0.6d, 0.6d);
+        HaarCascade faceDetected;
+        Image<Bgr, Byte> Frame;
+        Capture camera;
+        Image<Gray, byte> result;
+        Image<Gray, byte> TrainedFace = null;
+        Image<Gray, byte> grayface = null;
+        List<Image<Gray, byte>> trainingImages = new List<Image<Gray, byte>>();
+        List<string> labels = new List<string>();
+        List<string> Users = new List<string>();
+        int Count, NumLables, t;
+        string name, names = null;
+
+
+        
+
+        public Form1()
+        {
+            InitializeComponent();
+            //Haarcascade is for face detection
+            faceDetected = new HaarCascade("haarcascade_frontalface_default.xml");
+
+            //18:27
+            try
+            {
+                string Labelsinf = File.ReadAllText(Application.StartupPath + "/Faces/Faces.txt");
+                string[] Labels = Labelsinf.Split(',');
+                //First label before, will be the no.faces saved
+                NumLables = Convert.ToInt16(Labels[0]);
+                Count = NumLables;
+                //24:34
+                string FacesLoad;
+                for (int i=1;i<NumLables + 1; i++)
+                {
+
+                    FacesLoad = "face" + i + ".bmp";
+                    trainingImages.Add(new Image<Gray, byte>(Application.StartupPath + "/Faces/Faces.txt"));
+                    labels.Add(Labels[i]);
+
+
+                }
+            }
+
+            catch(Exception ex)
+            {
+                MessageBox.Show("Welcome User");
+            
+            }
+        }
+
+        //Manually lock Door after recognition
+        private void btnReset_Click(object sender, EventArgs e)
+        {
+            sp.Write("5"); //
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            sp.Open();
+            //sp.Write("1"); //test 
+        }
+
+        private void tbtest_Click(object sender, EventArgs e)
+        {
+            sp.Write("1"); //test 
+        }
+
+        private void btnStart_Click(object sender, EventArgs e)
+        {
+            camera = new Capture();
+            camera.QueryFrame();
+            Application.Idle += new EventHandler(FrameProcedure);
+        }
+        //RECOGNITION
+        //
+        //
+        //This saves a new face to database. 
+        private void registerUser_Click(object sender, EventArgs e)
+        {
+            Count = Count + 1;
+            grayface = camera.QueryGrayFrame().Resize(320, 240, Emgu.CV.CvEnum.INTER.CV_INTER_CUBIC);
+            MCvAvgComp[][] DetectedFaces = grayface.DetectHaarCascade(faceDetected, 1.2, 10, Emgu.CV.CvEnum.HAAR_DETECTION_TYPE.DO_CANNY_PRUNING, new Size(20, 20));
+            foreach (MCvAvgComp f in DetectedFaces[0])
+            {
+                TrainedFace = Frame.Copy(f.rect).Convert<Gray, byte>();
+                break;
+            }
+            TrainedFace = result.Resize(100, 100, Emgu.CV.CvEnum.INTER.CV_INTER_CUBIC);
+            trainingImages.Add(TrainedFace);
+            labels.Add(tbName.Text); //Adding name from text box to database
+            File.WriteAllText(Application.StartupPath + "/Faces/Faces.txt", trainingImages.ToArray().Length.ToString() + ",");
+            for (int i=1; i<trainingImages.ToArray().Length +1;i++)
+            {
+               
+                trainingImages.ToArray()[i - 1].Save(Application.StartupPath + "/Faces/face" + i + ".bmp");
+                File.AppendAllText(Application.StartupPath + "/Faces/Faces.txt", labels.ToArray()[i-1] + ",");
+                    
+            }
+            MessageBox.Show(tbName.Text + "Successfully Updated, new validated user"); //inform user that new face added
+
+            //UNLOCK DOOR WHEN USER IS RECOGNISED
+            if(TrainedFace != null) //MAY NEED TO TEST IF THIS IS LABEL AND NOT JUST A FILLED TB
+            {
+               // byte data = 1;
+                sp.Write("1");
+            }
+
+        }
+        //
+        //
+        //
+        private void FrameProcedure(object sender, EventArgs e)
+        {
+            Users.Add("");
+            Frame = camera.QueryFrame().Resize(320, 240, Emgu.CV.CvEnum.INTER.CV_INTER_CUBIC);
+            grayface = Frame.Convert<Gray, Byte>(); //33:07 
+            MCvAvgComp[][] facesDetectedNow = grayface.DetectHaarCascade(faceDetected, 1.2, 10, Emgu.CV.CvEnum.HAAR_DETECTION_TYPE.DO_CANNY_PRUNING, new Size(20, 20));
+            foreach (MCvAvgComp f in facesDetectedNow[0])
+            {
+                result = Frame.Copy(f.rect).Convert<Gray,Byte>().Resize(100,100,Emgu.CV.CvEnum.INTER.CV_INTER_CUBIC);
+                Frame.Draw(f.rect, new Bgr(Color.Green), 3);
+                if (trainingImages.ToArray().Length != 0)
+                {
+                    MCvTermCriteria termCriterias = new MCvTermCriteria(Count, 0.001);
+                    EigenObjectRecognizer recognizer = new EigenObjectRecognizer(trainingImages.ToArray(), labels.ToArray(), 1500, ref termCriterias); //Eigen is a high-level C++ library of template headers for linear algebra, matrix and vector operations, geometrical transformations, numerical solvers and related algorithms. Eigen is open-source software licensed under the Mozilla Public License 2.0 since version 3.1.1. Earlier versions were licensed under the GNU Lesser General Public License.
+                    name = recognizer.Recognize(result);
+                    Frame.Draw(name, ref font, new Point(f.rect.X - 2, f.rect.Y - 2 ), new Bgr(Color.Red));
+                                                                                                                                                       //40:34
+                }
+                //Users[t - 1] = name;
+                Users.Add("");
+            }
+            //create cast for frame to convert byte to image
+            cameraBox.Image = Frame;
+            names = "";
+            Users.Clear();
+            //47.02
+        }
+    }
+}
+
+
+
+
+/////mbed
+
+
+
+#include "mbed.h"
+//#include "Servo.h"
+//#include "BufferedSerial.h"
+
+//PwmOut led1(LED1);
+PwmOut myservo(D3);
+//BufferedSerial bt(D8, D3);
+Serial bt(D8, D2);
+Serial pc (USBTX, USBRX);
+Timer timer;
+
+char temp;
+
+int main()
+{    
+    bt.baud(9600);
+    pc.baud(9600);
+    
+    timer.start();
+    myservo.period_ms(20);
+    
+   while(1) {
+        
+        if(timer.read_ms() > 500)
+        {
+           // pc.printf("Check\r\n");
+            timer.reset();
+        }
+        
+        if(bt.readable())
+        {
+            temp = bt.getc();
+            pc.printf("I have received a char\r\n");
+            myservo.write(0.030);
+            wait_ms(500);
+            myservo.write(0.115);
+
+
+            //if(temp == '5')
+           // {
+               // myservo.write(0.115);
+            //}
+           // else if(temp == '1')
+            //{
+              //  myservo.write(0.115); 0.035
+            //}
+                
+        //max for servo 0.12; min for servo 0.030
+        /*
+        if(sp.write = 1) {
+            myservo.write(0.6);
+            wait(0.01);
+            */
+        }
+        
+    }
+}
